@@ -67,3 +67,73 @@ def test_all_strategies_importable():
         MultiTimeFrameStrategy, TripleScreenStrategy, IchimokuStrategy, TrendStrengthStrategy,
     )
     assert True
+
+
+def test_ml_strategy_fit():
+    from src.strategies.ml import MLStrategy
+
+    dates = pd.date_range("2024-01-01", periods=300, freq="B")
+    np.random.seed(42)
+    close = 100 + np.cumsum(np.random.randn(300) * 0.5)
+    df = pd.DataFrame({
+        "open": close * 0.999,
+        "high": close * 1.01,
+        "low": close * 0.99,
+        "close": close,
+        "volume": np.random.randint(1000000, 10000000, 300),
+    }, index=dates)
+
+    strat = MLStrategy(model_type="rf", n_estimators=50, max_depth=3)
+    strat.fit(df)
+
+    assert strat._model is not None
+    sig = strat.signal(df)
+    assert isinstance(sig, pd.Series)
+    assert len(sig) == len(df)
+
+
+def test_ml_strategy_multiple_model_types():
+    from src.strategies.ml import MLStrategy
+
+    dates = pd.date_range("2024-01-01", periods=300, freq="B")
+    np.random.seed(42)
+    close = 100 + np.cumsum(np.random.randn(300) * 0.5)
+    df = pd.DataFrame({
+        "open": close * 0.999,
+        "high": close * 1.01,
+        "low": close * 0.99,
+        "close": close,
+        "volume": np.random.randint(1000000, 10000000, 300),
+    }, index=dates)
+
+    for model_type in ["rf", "gb", "dt"]:
+        strat = MLStrategy(model_type=model_type, n_estimators=20, max_depth=3)
+        strat.fit(df)
+        assert strat._model is not None, f"Model {model_type} should be created"
+        sig = strat.signal(df)
+        assert len(sig) == len(df)
+
+
+def test_ml_strategy_no_future_leakage():
+    from src.strategies.ml import MLStrategy
+
+    dates = pd.date_range("2024-01-01", periods=300, freq="B")
+    np.random.seed(42)
+    close = 100 + np.cumsum(np.random.randn(300) * 0.5)
+    df = pd.DataFrame({
+        "open": close * 0.999,
+        "high": close * 1.01,
+        "low": close * 0.99,
+        "close": close,
+        "volume": np.random.randint(1000000, 10000000, 300),
+    }, index=dates)
+
+    strat = MLStrategy(model_type="rf", n_estimators=20, max_depth=3)
+    strat.fit(df, train_start=dates[100])
+
+    sig = strat.signal(df)
+    sig_train = sig.loc[dates[50]:dates[150]]
+    sig_oos = sig.loc[dates[200]:]
+
+    assert sig_train.abs().sum() > 0, "Should generate signals during training period"
+    assert sig_oos.abs().sum() > 0, "Should generate signals during OOS period"

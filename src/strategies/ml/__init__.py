@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, Literal
 
 import pandas as pd
 import numpy as np
@@ -17,8 +17,21 @@ logger = logging.getLogger(__name__)
 class MLStrategy(BaseStrategy):
     name = "MLStrategy"
 
-    def __init__(self, params: Optional[dict] = None):
+    def __init__(
+        self,
+        params: Optional[dict] = None,
+        model_type: Literal["rf", "gb", "dt"] = "rf",
+        n_estimators: int = 100,
+        max_depth: int = 5,
+        look_forward: int = 5,
+        train_window: int = 252,
+    ):
         super().__init__(params)
+        self.model_type = model_type
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.look_forward = look_forward
+        self.train_window = train_window
         self._model = None
         self._feature_cols: list = []
 
@@ -41,6 +54,74 @@ class MLStrategy(BaseStrategy):
         loss = (-delta.clip(upper=0)).rolling(period).mean()
         rs = gain / (loss + 1e-10)
         return 100 - (100 / (1 + rs))
+
+    def _build_labels(
+        self,
+        df: pd.DataFrame,
+        feats: pd.DataFrame,
+    ) -> pd.Series:
+        future_return = df["close"].shift(-self.look_forward) / df["close"] - 1
+        labels = pd.Series(0, index=df.index)
+        labels[future_return > 0.01] = 1
+        labels[future_return < -0.01] = -1
+        labels = labels.loc[feats.index]
+        return labels
+
+    def _create_model(self):
+        if self.model_type == "rf":
+            try:
+                from sklearn.ensemble import RandomForestClassifier
+                return RandomForestClassifier(
+                    n_estimators=self.n_estimators,
+                    max_depth=self.max_depth,
+                    random_state=42,
+                    n_jobs=-1,
+                )
+            except ImportError:
+                return None
+        elif self.model_type == "gb":
+            try:
+                from sklearn.ensemble import GradientBoostingClassifier
+                return GradientBoostingClassifier(
+                    n_estimators=self.n_estimators,
+                    max_depth=self.max_depth,
+                    random_state=42,
+                )
+            except ImportError:
+                return None
+        else:
+            try:
+                from sklearn.tree import DecisionTreeClassifier
+                return DecisionTreeClassifier(
+                    max_depth=self.max_depth,
+                    random_state=42,
+                )
+            except ImportError:
+                return None
+
+    def fit(self, df: pd.DataFrame, train_start: Optional[pd.Timestamp] = None) -> "MLStrategy":
+        feats = self._build_features(df)
+        labels = self._build_labels(df, feats)
+        valid = labels != 0
+        X = feats.loc[valid].values
+        y = labels.loc[valid].values
+
+        if train_start is not None:
+            mask = feats.loc[valid].index >= train_start
+            X = X[mask]
+            y = y[mask]
+
+        if len(X) < 30:
+            logger.warning(f"Not enough training samples: {len(X)}")
+            return self
+
+        self._model = self._create_model()
+        if self._model is not None:
+            self._model.fit(X, y)
+        return self
+
+    def fit_predict(self, df: pd.DataFrame) -> "MLStrategy":
+        return self.fit(df)
 
     def signal(self, df: pd.DataFrame) -> pd.Series:
         feats = self._build_features(df)
