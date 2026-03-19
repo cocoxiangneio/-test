@@ -97,13 +97,14 @@ def test_commission_deducted():
         return {"STOCK": 1.0}
 
     comm_model = PercentCommission(0.0003)
-    engine = BacktestEngine(initial_cash=100000, commission_rate=0.0003, slippage_pct=0.0)
+    engine = BacktestEngine(initial_cash=1000000, commission_rate=0.0003, slippage_pct=0.0)
     result = engine.run(data, strategy)
     total_commission = sum(t.commission for t in result.trades)
     assert total_commission > 0, "Commission should be charged on trades"
     buy_trade = next(t for t in result.trades if t.side == "buy")
     expected_comm = comm_model.calc(buy_trade.price, buy_trade.volume)
-    assert abs(buy_trade.commission - expected_comm) < 1e-6
+    assert abs(buy_trade.commission - expected_comm) < 1e-6, \
+        f"commission={buy_trade.commission}, expected={expected_comm}, price={buy_trade.price}, volume={buy_trade.volume}"
 
 
 def test_slippage_affects_execution():
@@ -117,14 +118,14 @@ def test_slippage_affects_execution():
         return {"STOCK": 1.0}
 
     engine_no_slip = BacktestEngine(
-        initial_cash=100000,
+        initial_cash=1000000,
         commission_rate=0.0,
         slippage_pct=0.0,
     )
     result_no_slip = engine_no_slip.run(data, strategy)
 
     engine_slip = BacktestEngine(
-        initial_cash=100000,
+        initial_cash=1000000,
         commission_rate=0.0,
         slippage_pct=0.001,
     )
@@ -198,6 +199,53 @@ def test_no_look_ahead_bias():
     assert result.total_trades >= 0
 
 
+def test_position_sizing_fixed_fractional():
+    from src.backtest.engine import BacktestEngine
+    dates = pd.date_range("2024-01-01", periods=20, freq="B")
+    close_prices = np.array([100.0, 200.0, 50.0], dtype=float)
+    data = {}
+    for i, (stock, price) in enumerate(zip(["A", "B", "C"], close_prices)):
+        prices = np.full(20, price)
+        prices = prices * (1 + np.linspace(0, 0.1, 20))
+        data[stock] = _build_controlled_ohlcv(dates, prices)
+
+    def strategy(data, date):
+        return {s: 1.0 for s in data.keys()}
+
+    engine = BacktestEngine(initial_cash=300000, commission_rate=0.0, slippage_pct=0.0, position_size=0.1)
+    result = engine.run(data, strategy)
+    buy_trades = [t for t in result.trades if t.side == "buy"]
+    assert len(buy_trades) == 3, f"Should buy all 3 stocks, got {len(buy_trades)}"
+    for trade in buy_trades:
+        expected_vol = int(300000 * 0.1 / trade.price)
+        assert trade.volume <= expected_vol + 1, f"Volume {trade.volume} exceeds expected {expected_vol}"
+
+
+def test_position_sizing_zero_returns_no_trade():
+    from src.backtest.engine import BacktestEngine
+    dates = pd.date_range("2024-01-01", periods=5, freq="B")
+    prices = np.full(5, 100.0)
+    data = {"STOCK": _build_controlled_ohlcv(dates, prices)}
+    engine = BacktestEngine(initial_cash=100000, commission_rate=0.0, position_size=0.0)
+    def strategy(d, date): return {"STOCK": 1.0}
+    result = engine.run(data, strategy)
+    buy_trades = [t for t in result.trades if t.side == "buy"]
+    assert len(buy_trades) == 0, "position_size=0 should produce no trades"
+
+
+def test_position_sizing_cash_constraint():
+    from src.backtest.engine import BacktestEngine
+    dates = pd.date_range("2024-01-01", periods=5, freq="B")
+    prices = np.full(5, 50000.0)
+    data = {"STOCK": _build_controlled_ohlcv(dates, prices)}
+    engine = BacktestEngine(initial_cash=100000, commission_rate=0.0, position_size=1.0)
+    def strategy(d, date): return {"STOCK": 1.0}
+    result = engine.run(data, strategy)
+    buy_trades = [t for t in result.trades if t.side == "buy"]
+    assert len(buy_trades) == 1
+    assert buy_trades[0].volume <= 2, "With expensive stock, volume should be capped"
+
+
 def test_multiple_stocks_allocation():
     from src.backtest.engine import BacktestEngine
     dates = pd.date_range("2024-01-01", periods=20, freq="B")
@@ -210,9 +258,53 @@ def test_multiple_stocks_allocation():
     def buy_all(data_dict, date):
         return {s: 1.0 for s in data_dict.keys()}
 
-    engine = BacktestEngine(initial_cash=300000, commission_rate=0.0003)
+    engine = BacktestEngine(initial_cash=300000, commission_rate=0.0003, position_size=0.34)
     bt_result = engine.run(result, buy_all)
     buy_trades = [t for t in bt_result.trades if t.side == "buy"]
-    assert len(buy_trades) == 3, "Should buy all 3 stocks"
+    assert len(buy_trades) == 3, f"Should buy all 3 stocks, got {len(buy_trades)}"
     sell_trades = [t for t in bt_result.trades if t.side == "sell"]
-    assert len(sell_trades) == 3, "Should sell all 3 stocks at end"
+    assert len(sell_trades) == 3, f"Should sell all 3 stocks at end, got {len(sell_trades)}"
+
+
+def test_walk_forward_analysis():
+    from src.backtest.walk_forward import WalkForwardAnalyzer
+    np.random.seed(42)
+    dates = pd.date_range("2024-01-01", periods=500, freq="B")
+    returns = np.random.randn(500) * 0.01
+    equity = pd.Series(100 * np.exp(np.cumsum(returns)), index=dates)
+
+    wfa = WalkForwardAnalyzer(train_window=100, test_window=50, step=25, mode="rolling")
+    result = wfa.analyze(equity)
+    assert result["n_windows"] >= 5
+    assert "oos_positive_rate" in result
+    assert "mean_oos_sharpe" in result
+    assert "is_robust" in result
+    assert result["ois_vs_is_ratio"] is not None
+    results_df = wfa.get_results_df()
+    assert len(results_df) == result["n_windows"]
+
+
+def test_walk_forward_expanding_mode():
+    from src.backtest.walk_forward import WalkForwardAnalyzer
+    np.random.seed(99)
+    dates = pd.date_range("2024-01-01", periods=400, freq="B")
+    equity = pd.Series(100 * np.exp(np.cumsum(np.random.randn(400) * 0.01)), index=dates)
+
+    wfa = WalkForwardAnalyzer(train_window=150, test_window=60, step=30, mode="expanding")
+    result = wfa.analyze(equity)
+    assert result["n_windows"] >= 3
+    assert "stability_ratio" in result
+
+
+def test_walk_forward_ois_ratio():
+    from src.backtest.walk_forward import WalkForwardAnalyzer
+    np.random.seed(123)
+    dates = pd.date_range("2024-01-01", periods=300, freq="B")
+    equity = pd.Series(100 * np.exp(np.cumsum(np.random.randn(300) * 0.01)), index=dates)
+
+    wfa = WalkForwardAnalyzer(train_window=80, test_window=40, step=20)
+    result = wfa.analyze(equity)
+    assert result["ois_vs_is_ratio"] is not None
+    oos_positive_windows = sum(1 for r in wfa.results_ if r["is_oos_positive"])
+    assert oos_positive_windows >= 0
+    assert result["std_oos_sharpe"] >= 0

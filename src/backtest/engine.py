@@ -164,10 +164,12 @@ class BacktestEngine:
                         profit_prices.pop(stock, None)
                 else:
                     if signal == 1:
-                        self._open_position(stock, date, price, volume=100)
-                        entry_prices[stock] = price
-                        stop_prices[stock] = price * (1 - sl)
-                        profit_prices[stock] = price * (1 + tp)
+                        vol = self._calculate_position_size(price)
+                        if vol > 0:
+                            self._open_position(stock, date, price, volume=vol)
+                            entry_prices[stock] = price
+                            stop_prices[stock] = price * (1 - sl)
+                            profit_prices[stock] = price * (1 + tp)
 
             self.dates.append(date)
             self.equity_history.append(self._get_equity())
@@ -178,15 +180,25 @@ class BacktestEngine:
 
         return self._build_result()
 
-    def _open_position(self, stock: str, date: Any, price: float, volume: int):
-        exec_price = self._apply_slippage(price, "buy")
-        commission = self._apply_commission(exec_price, volume)
-        total_cost = exec_price * volume + commission
+    def _calculate_position_size(self, price: float) -> int:
+        if self.position_size <= 0:
+            return 0
+        max_cost = self.cash * self.position_size
+        if max_cost <= 0:
+            return 0
+        volume = int(max_cost / price)
+        return max(volume, 1)
 
+    def _open_position(self, stock: str, date: Any, price: float, volume: Optional[int] = None):
+        exec_price = self._apply_slippage(price, "buy")
+        if volume is None:
+            volume = self._calculate_position_size(exec_price)
+        total_cost = exec_price * volume
         if total_cost > self.cash:
-            volume = int(self.cash / (exec_price + commission))
+            volume = int(self.cash / exec_price)
             if volume <= 0:
                 return
+        commission = self._apply_commission(exec_price, volume)
 
         self.positions[stock] = Position(
             stock=stock,

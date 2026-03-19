@@ -240,6 +240,78 @@ def test_factor_portfolio_weights_normalized_to_one():
     assert abs(long_pos + short_pos) < 1e-6, "Net long-short should be zero"
 
 
+def test_advanced_risk_metrics_cvar():
+    from src.portfolio.risk_manager import AdvancedRiskMetrics
+
+    np.random.seed(42)
+    dates = pd.date_range("2024-01-01", periods=252, freq="B")
+    returns = pd.Series(np.random.randn(252) * 0.01, index=dates)
+
+    arm = AdvancedRiskMetrics(confidence=0.95)
+    cvar = arm.calculate_cvar(returns, portfolio_value=100000)
+    assert isinstance(cvar, float)
+    assert cvar < 0
+
+    var_95 = arm.calculate_var(returns, 100000)
+    assert cvar <= var_95, f"CVaR ({cvar}) should be <= VaR ({var_95})"
+
+
+def test_advanced_risk_metrics_omega_ratio():
+    from src.portfolio.risk_manager import AdvancedRiskMetrics
+
+    np.random.seed(42)
+    dates = pd.date_range("2024-01-01", periods=100, freq="B")
+    returns = pd.Series([0.01, -0.005, 0.02, -0.01, 0.015] * 20, index=dates)
+
+    arm = AdvancedRiskMetrics()
+    omega = arm.calculate_omega_ratio(returns)
+    assert omega > 0
+    assert omega != 1.0
+
+
+def test_advanced_risk_metrics_tail_ratio():
+    from src.portfolio.risk_manager import AdvancedRiskMetrics
+
+    np.random.seed(42)
+    dates = pd.date_range("2024-01-01", periods=252, freq="B")
+    returns = pd.Series(np.random.randn(252) * 0.01, index=dates)
+
+    arm = AdvancedRiskMetrics()
+    tail_ratio = arm.calculate_tail_ratio(returns)
+    assert isinstance(tail_ratio, float)
+    assert tail_ratio > 0
+
+
+def test_advanced_risk_metrics_max_consecutive_losses():
+    from src.portfolio.risk_manager import AdvancedRiskMetrics
+
+    dates = pd.date_range("2024-01-01", periods=20, freq="B")
+    returns = pd.Series([0.01, -0.01, -0.01, -0.01, 0.01, -0.01, -0.01, 0.01, 0.01, 0.01,
+                         0.01, 0.01, -0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01], index=dates)
+
+    arm = AdvancedRiskMetrics()
+    max_loss = arm.calculate_max_consecutive_losses(returns)
+    assert max_loss == 3
+
+
+def test_advanced_risk_metrics_calculate_all():
+    from src.portfolio.risk_manager import AdvancedRiskMetrics
+
+    np.random.seed(42)
+    dates = pd.date_range("2024-01-01", periods=100, freq="B")
+    returns = pd.Series(np.random.randn(100) * 0.01, index=dates)
+
+    arm = AdvancedRiskMetrics(confidence=0.95)
+    metrics = arm.calculate_all(returns, 100000)
+
+    assert "cvar" in metrics
+    assert "omega_ratio" in metrics
+    assert "tail_ratio" in metrics
+    assert "max_consecutive_losses" in metrics
+    assert "var_95" in metrics
+    assert metrics["cvar"] < 0
+
+
 def test_ica_aware_portfolio_builder():
     from src.portfolio.factor_portfolio import ICAwarePortfolioBuilder
 
