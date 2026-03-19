@@ -16,7 +16,7 @@ def sample_ohlcv():
     open_p = close * (1 + np.random.randn(n) * 0.01)
     high = np.maximum(open_p, close) + np.random.rand(n) * 0.5
     low = np.minimum(open_p, close) - np.random.rand(n) * 0.5
-    volume = np.random.randint(1e6, 1e7, n)
+    volume = np.random.randint(1000000, 10000000, n)
 
     df = pd.DataFrame({
         "open": open_p,
@@ -40,6 +40,6 @@ def sample_multi_ohlcv():
             "high": close * 1.01,
             "low": close * 0.98,
             "close": close,
-            "volume": np.random.randint(1e6, 1e7, len(dates)),
+            "volume": np.random.randint(1000000, 10000000, len(dates)),
         }, index=dates)
     return result
