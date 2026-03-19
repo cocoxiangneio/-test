@@ -146,3 +146,52 @@ def test_grid_search_stability():
     _, score2, _ = gs2.search(obj, n_weights=0)
 
     assert score1 == score2
+
+
+def _schaffer(x):
+    return [x[0] ** 2, (x[0] - 2) ** 2]
+
+
+def test_nsga2_returns_pareto_front():
+    from src.optimization.nsga_optimizer import NSGAII
+
+    nsga = NSGAII(n_objectives=2, pop_size=100, n_generations=30, seed=42)
+    bounds = [(-10.0, 10.0)]
+    pareto = nsga.optimize([lambda x: x[0] ** 2, lambda x: (x[0] - 2) ** 2], bounds)
+
+    assert len(pareto) >= 5, "Pareto front should have at least 5 solutions"
+    objectives_only = [obj for _, obj in pareto]
+    obj0_vals = sorted([o[0] for o in objectives_only])
+    assert all(obj0_vals[i] <= obj0_vals[i + 1] for i in range(len(obj0_vals) - 1))
+
+
+def test_nsga2_pareto_nondominated():
+    from src.optimization.nsga_optimizer import NSGAII
+
+    nsga = NSGAII(n_objectives=2, pop_size=80, n_generations=25, seed=42)
+    bounds = [(-5.0, 5.0)]
+    pareto = nsga.optimize([lambda x: x[0] ** 2, lambda x: (x[0] - 2) ** 2], bounds)
+
+    for i, (g1, o1) in enumerate(pareto):
+        for j, (g2, o2) in enumerate(pareto):
+            if i != j:
+                assert not (o1[0] <= o2[0] and o1[1] <= o2[1] and (o1[0] < o2[0] or o1[1] < o2[1])), \
+                    f"Solution {i} should not dominate {j}"
+
+
+def test_nsga2_multiobjective_tradeoff():
+    from src.optimization.nsga_optimizer import NSGAII
+
+    nsga = NSGAII(n_objectives=3, pop_size=100, n_generations=30, seed=42)
+    bounds = [(0.0, 1.0), (0.0, 1.0)]
+
+    def obj1(x): return x[0]
+    def obj2(x): return x[1]
+    def obj3(x): return 1.0 - x[0] - x[1]
+
+    pareto = nsga.optimize([obj1, obj2, obj3], bounds)
+    assert len(pareto) >= 3, "3-objective should yield diverse front"
+
+    objectives = [obj for _, obj in pareto]
+    obj0_vals = [o[0] for o in objectives]
+    assert max(obj0_vals) - min(obj0_vals) > 0.1, "Objectives should vary across front"
