@@ -101,3 +101,23 @@ def test_load_parquet_missing_file():
         assert False, "Should raise FileNotFoundError"
     except FileNotFoundError:
         pass
+
+
+def test_fetcher_no_hardcoded_credentials():
+    import os
+    from src.data.fetcher import JQFetcher
+
+    original_user = os.environ.pop("JQ_USER", None)
+    original_pass = os.environ.pop("JQ_PASSWORD", None)
+    try:
+        fetcher = JQFetcher()
+        try:
+            fetcher.auth()
+            assert False, "Should raise ValueError when credentials not set"
+        except ValueError as e:
+            assert "JQ_USER and JQ_PASSWORD" in str(e)
+    finally:
+        if original_user:
+            os.environ["JQ_USER"] = original_user
+        if original_pass:
+            os.environ["JQ_PASSWORD"] = original_pass

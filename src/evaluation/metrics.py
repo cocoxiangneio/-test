@@ -13,9 +13,14 @@ logger = logging.getLogger(__name__)
 
 
 def sharpe_ratio(returns: pd.Series, periods_per_year: int = 252) -> float:
-    if len(returns) == 0 or returns.std() == 0:
+    if len(returns) == 0:
+        logger.warning("Empty returns provided to sharpe_ratio")
         return 0.0
-    return float(np.sqrt(periods_per_year) * returns.mean() / returns.std())
+    std = returns.std()
+    if std == 0:
+        logger.warning("Zero-variance returns in sharpe_ratio: returns are constant or no variance")
+        return 0.0
+    return float(np.sqrt(periods_per_year) * returns.mean() / std)
 
 
 def max_drawdown(equity: pd.Series) -> float:
@@ -46,20 +51,22 @@ def sortino_ratio(returns: pd.Series, periods_per_year: int = 252) -> float:
 def win_rate(trades: List) -> float:
     if not trades:
         return 0.0
-    sell_trades = [t for t in trades if hasattr(t, "side") and t.side == "sell"]
-    if not sell_trades:
+    closed = [t for t in trades if hasattr(t, "pnl") and t.side in ("sell", "sell_short")]
+    if not closed:
         return 0.0
-    wins = sum(1 for t in sell_trades if t.price > 0)
-    return float(wins / len(sell_trades))
+    wins = sum(1 for t in closed if t.pnl > 0)
+    return float(wins / len(closed))
 
 
 def profit_loss_ratio(trades: List) -> float:
-    sell_trades = [t for t in trades if hasattr(t, "side") and t.side == "sell"]
-    if not sell_trades:
+    closed = [t for t in trades if hasattr(t, "pnl") and t.pnl != 0]
+    if not closed:
         return 0.0
-    avg_win = np.mean([t.price * t.volume for t in sell_trades if t.price > 0]) if any(t.price > 0 for t in sell_trades) else 0
-    avg_loss = abs(np.mean([t.price * t.volume for t in sell_trades if t.price < 0])) if any(t.price < 0 for t in sell_trades) else 1
-    return float(avg_win / avg_loss) if avg_loss > 0 else 0.0
+    wins = [t.pnl for t in closed if t.pnl > 0]
+    losses = [abs(t.pnl) for t in closed if t.pnl < 0]
+    avg_win = float(np.mean(wins)) if wins else 0.0
+    avg_loss = float(np.mean(losses)) if losses else 1.0
+    return avg_win / avg_loss if avg_loss > 0 else 0.0
 
 
 def annual_return(equity: pd.Series, periods_per_year: int = 252) -> float:

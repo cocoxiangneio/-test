@@ -29,6 +29,25 @@ class TCAResult:
         }
 
 
+class PartialFillModel:
+    def __init__(self, participation_threshold: float = 0.05):
+        self.participation_threshold = participation_threshold
+
+    def calculate_filled_volume(
+        self,
+        requested_volume: int,
+        adv: int,
+        volatility: float = 0.02,
+    ) -> int:
+        if adv <= 0:
+            return requested_volume
+        participation = requested_volume / adv
+        if participation <= self.participation_threshold:
+            return requested_volume
+        fill_rate = self.participation_threshold / participation
+        return max(1, int(requested_volume * fill_rate))
+
+
 class MarketImpactModel:
     def __init__(self, eta: float = 0.1, gamma: float = 0.1):
         self.eta = eta

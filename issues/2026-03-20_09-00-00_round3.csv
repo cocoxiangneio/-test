@@ -1,0 +1,8 @@
+"id","priority","phase","area","title","description","acceptance_criteria","test_mcp","review_initial_requirements","review_regression_requirements","dev_state","review_initial_state","review_regression_state","git_state","owner","refs","notes"
+"q4-010","P0","1","factors","IC前向收益率公式错误","compute_forward_returns用pct_change(period).shift(-period)计算的是当期到period期前的收益率，应改为shift(-period)/prices-1","shift后prices与当期factor对齐；IC值有合理范围(-1,1)；IC均值>0","pytest","已完成","已通过","已通过","已提交"
+"q4-020","P0","2","backtest","做空机制缺失","engine仅处理signal=1开多仓，signal=-1在无持仓时无法开空仓","allow_short=True时signal=-1可开空仓；空仓收取利息/利息成本；做空保证金检查","integration","已完成","已通过","已通过","已提交"
+"q4-030","P0","3","evaluation","WinRate计算错误","win_rate用sell_trades中t.price>0判断是否盈利，price是卖出价不可能<=0","Trade.dataclass增加entry_price字段；win_rate比较entry_price与exit_price","pytest","已完成","已通过","已通过","已提交"
+"q4-040","P1","4","data","硬编码凭证移除","JQFetcher.auth()中有硬编码username/passwordfallback","移除硬编码fallback；凭证必须通过参数或环境变量传入","pytest","已完成","已通过","已通过","已提交"
+"q4-050","P1","5","backtest","边缘case静默失败","optimizer/portfolio在输入为空或零方差时返回0或{}无警告","空输入时logger.warning；零方差returns时返回None/NaN而非0","pytest","已完成","已通过","已通过","已提交"
+"q4-060","P1","6","optimization","WalkForwardOptimizer仅测首窗","WalkForwardOptimizer只运行第一个train/test窗口，未遍历所有窗口","遍历所有walk-forward窗口；聚合OOS equity；返回每个窗口的Sharpe列表","pytest","已完成","已通过","已通过","已提交"
+"q4-070","P2","7","backtest","部分成交模拟","大单相对ADV无法一次性成交，应按参与率模拟","订单量>ADV*threshold时分批成交；返回实际成交数量","pytest","已完成","已通过","已通过","已提交"

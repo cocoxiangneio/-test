@@ -127,7 +127,7 @@ class DataLoader:
     ) -> pd.Series:
         if "close" not in df.columns:
             raise ValueError("DataFrame must contain 'close' column")
-        return df["close"].pct_change(period).shift(-period)
+        return df["close"].shift(-period) / df["close"] - 1
 
     def clear_all_cache(self):
         self._kline_cache.clear()

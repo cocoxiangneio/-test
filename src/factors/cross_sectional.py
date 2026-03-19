@@ -133,7 +133,7 @@ class ICValidator:
         period: Optional[int] = None,
     ) -> pd.DataFrame:
         period = period or self.forward_period
-        return prices.pct_change(period).shift(-period)
+        return prices.shift(-period) / prices - 1
 
     def compute_daily_ic(
         self,

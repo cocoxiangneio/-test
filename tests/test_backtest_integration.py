@@ -308,3 +308,127 @@ def test_walk_forward_ois_ratio():
     oos_positive_windows = sum(1 for r in wfa.results_ if r["is_oos_positive"])
     assert oos_positive_windows >= 0
     assert result["std_oos_sharpe"] >= 0
+
+
+def test_short_selling_basic():
+    from src.backtest.engine import BacktestEngine
+
+    dates = pd.date_range("2024-01-01", periods=30, freq="B")
+    np.random.seed(42)
+    close = 100 - np.cumsum(np.random.randn(30) * 1.0)
+    close = np.maximum(close, 1.0)
+    ohlcv = _make_ohlcv(dates, close)
+    data = {"STOCK": ohlcv}
+
+    def short_strategy(data_dict, date):
+        return {"STOCK": -1.0}
+
+    engine = BacktestEngine(initial_cash=100000, allow_short=True, short_margin=0.5, position_size=0.5)
+    result = engine.run(data, short_strategy)
+
+    assert result.total_trades >= 2
+    sell_short_trades = [t for t in result.trades if t.side == "sell_short"]
+    assert len(sell_short_trades) > 0
+    cash_after_open = result.trades[0].price * result.trades[0].volume
+    assert result.equity_curve.iloc[0] >= 100000
+
+
+def test_short_selling_stop_loss():
+    from src.backtest.engine import BacktestEngine
+
+    dates = pd.date_range("2024-01-01", periods=30, freq="B")
+    np.random.seed(42)
+    close = [100.0] * 30
+    close[10] = 115.0
+    close[11:20] = [115.0] * 9
+    close[20] = 100.0
+    ohlcv = _make_ohlcv(dates, close)
+    data = {"STOCK": ohlcv}
+
+    def short_strategy(data_dict, date):
+        return {"STOCK": -1.0}
+
+    engine = BacktestEngine(initial_cash=100000, allow_short=True, stop_loss=0.05, position_size=0.5)
+    result = engine.run(data, short_strategy)
+
+    stop_loss_trades = [t for t in result.trades if t.reason == "stop_loss" and t.side == "sell"]
+    assert len(stop_loss_trades) > 0, "Short stop loss should trigger"
+
+
+def test_win_rate_uses_pnl():
+    from src.evaluation.metrics import win_rate, profit_loss_ratio
+    from src.backtest.engine import Trade
+
+    trades = [
+        Trade(date=None, stock="A", side="sell", price=110.0, volume=100,
+              commission=0.33, slippage=0.0, signal=1.0, reason="signal", entry_price=100.0, pnl=1000 - 0.33),
+        Trade(date=None, stock="B", side="sell", price=90.0, volume=100,
+              commission=0.27, slippage=0.0, signal=1.0, reason="signal", entry_price=100.0, pnl=-1000 - 0.27),
+        Trade(date=None, stock="C", side="sell_short", price=90.0, volume=100,
+              commission=0.27, slippage=0.0, signal=-1.0, reason="signal", entry_price=100.0, pnl=1000 - 0.27),
+    ]
+
+    wr = win_rate(trades)
+    assert wr == pytest.approx(2/3), f"2/3 wins expected, got {wr}"
+
+    plr = profit_loss_ratio(trades)
+    assert plr > 0
+
+
+def test_walk_forward_optimizer_multi_window():
+    from src.backtest.walk_forward import WalkForwardOptimizer
+
+    dates = pd.date_range("2024-01-01", periods=500, freq="B")
+    np.random.seed(42)
+    close = 100 + np.cumsum(np.random.randn(500) * 1.0)
+    ohlcv = _make_ohlcv(dates, close)
+    data = {"STOCK": ohlcv}
+
+    def ma_cross_strategy(data_dict, date, fast=10, slow=20):
+        signals = {}
+        for stock, df in data_dict.items():
+            if date not in df.index:
+                continue
+            hist = df.loc[:date]
+            if len(hist) < slow:
+                signals[stock] = 0.0
+                continue
+            ma_fast = hist["close"].rolling(fast).mean().iloc[-1]
+            ma_slow = hist["close"].rolling(slow).mean().iloc[-1]
+            if ma_fast > ma_slow:
+                signals[stock] = 1.0
+            elif ma_fast < ma_slow:
+                signals[stock] = -1.0
+            else:
+                signals[stock] = 0.0
+        return signals
+
+    optimizer = WalkForwardOptimizer(
+        train_window=100, test_window=50, step=40,
+    )
+    best_params, score, results_df = optimizer.optimize(
+        data, ma_cross_strategy,
+        param_grid={"fast": [5, 10], "slow": [20, 30]},
+    )
+
+    assert best_params is not None
+    assert len(results_df) > 0
+    assert "mean_oos_sharpe" in results_df.columns
+    assert "n_windows" in results_df.columns
+    assert all(results_df["n_windows"] >= 1)
+
+
+def test_partial_fill_model():
+    from src.backtest.tca import PartialFillModel
+
+    pf = PartialFillModel(participation_threshold=0.05)
+
+    small_order = pf.calculate_filled_volume(100, adv=10000)
+    assert small_order == 100, "Small orders should fill fully"
+
+    large_order = pf.calculate_filled_volume(1000, adv=1000)
+    assert large_order < 1000, "Large orders should be partially filled"
+    assert large_order >= 1, "At least 1 share should be filled"
+
+    no_adv = pf.calculate_filled_volume(1000, adv=0)
+    assert no_adv == 1000, "No ADV means full fill"

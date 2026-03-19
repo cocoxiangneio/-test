@@ -84,6 +84,31 @@ def test_weights_to_backtest_signals():
     assert all(0 <= w <= 1 for w in weights.values())
 
 
+def test_optimizer_empty_returns_returns_empty():
+    from src.portfolio.optimizer import MinVarianceOptimizer, RiskParityOptimizer, MeanVarianceOptimizer
+
+    empty_df = pd.DataFrame()
+    mv = MeanVarianceOptimizer()
+    result = mv.optimize(empty_df)
+    assert result == {}
+
+    mv = MinVarianceOptimizer()
+    result = mv.optimize(empty_df)
+    assert result == {}
+
+    rp = RiskParityOptimizer()
+    result = rp.optimize(empty_df)
+    assert result == {}
+
+
+def test_sharpe_ratio_zero_variance_returns_zero():
+    from src.evaluation.metrics import sharpe_ratio
+
+    flat_returns = pd.Series([0.01, 0.01, 0.01, 0.01])
+    sr = sharpe_ratio(flat_returns)
+    assert sr == 0.0
+
+
 def test_risk_manager_position_limits_in_backtest():
     from src.portfolio.risk_manager import RiskManager
     rm = RiskManager(max_position_pct=0.3)

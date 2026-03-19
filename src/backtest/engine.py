@@ -27,6 +27,8 @@ class Trade:
     slippage: float
     signal: float
     reason: str = "signal"
+    entry_price: float = 0.0
+    pnl: float = 0.0
 
 
 @dataclass
@@ -35,6 +37,7 @@ class Position:
     volume: int
     avg_price: float
     unrealized_pnl: float = 0.0
+    side: str = "long"
 
 
 @dataclass
@@ -61,6 +64,10 @@ class BacktestEngine:
         stop_loss: float = 0.05,
         take_profit: float = 0.10,
         position_size: float = 1.0,
+        allow_short: bool = False,
+        short_margin: float = 0.5,
+        allow_partial_fill: bool = False,
+        participation_threshold: float = 0.05,
     ):
         self.initial_cash = initial_cash
         self.cash = initial_cash
@@ -69,10 +76,15 @@ class BacktestEngine:
         self.stop_loss = stop_loss
         self.take_profit = take_profit
         self.position_size = position_size
+        self.allow_short = allow_short
+        self.short_margin = short_margin
+        self.allow_partial_fill = allow_partial_fill
+        self.participation_threshold = participation_threshold
         self.positions: Dict[str, Position] = {}
         self.trades: List[Trade] = []
         self.equity_history: List[float] = []
         self.dates: List[Any] = []
+        self._daily_volumes: Dict[str, int] = {}
 
     def reset(self):
         self.cash = self.initial_cash
@@ -82,13 +94,19 @@ class BacktestEngine:
         self.dates = []
 
     def _get_equity(self) -> float:
-        pos_value = sum(p.volume * p.avg_price for p in self.positions.values())
+        pos_value = sum(
+            p.unrealized_pnl if p.side == "short" else p.volume * p.avg_price
+            for p in self.positions.values()
+        )
         return self.cash + pos_value
 
     def _update_unrealized_pnl(self, prices: Dict[str, float]):
         for pos in self.positions.values():
             if pos.stock in prices:
-                pos.unrealized_pnl = (prices[pos.stock] - pos.avg_price) * pos.volume
+                if pos.side == "long":
+                    pos.unrealized_pnl = (prices[pos.stock] - pos.avg_price) * pos.volume
+                else:
+                    pos.unrealized_pnl = (pos.avg_price - prices[pos.stock]) * pos.volume
 
     def _apply_commission(self, price: float, volume: int) -> float:
         return self.commission.calc(price, volume)
@@ -123,6 +141,9 @@ class BacktestEngine:
             prices = {s: float(df.loc[date, "close"]) for s, df in data_dict.items() if date in df.index}
             if not prices:
                 continue
+            if self.allow_partial_fill:
+                for stock in prices.keys():
+                    self._update_daily_volume(stock, date, data_dict)
 
             self._update_unrealized_pnl(prices)
 
@@ -149,7 +170,10 @@ class BacktestEngine:
                             continue
 
                     if tp > 0 and pos.avg_price > 0:
-                        gain_pct = (price - pos.avg_price) / pos.avg_price
+                        if pos.side == "long":
+                            gain_pct = (price - pos.avg_price) / pos.avg_price
+                        else:
+                            gain_pct = (pos.avg_price - price) / pos.avg_price
                         if gain_pct >= tp:
                             self._close_position(stock, date, price, signal, "take_profit")
                             entry_prices.pop(stock, None)
@@ -157,7 +181,16 @@ class BacktestEngine:
                             profit_prices.pop(stock, None)
                             continue
 
-                    if signal == -1:
+                    if sl > 0 and pos.avg_price > 0 and pos.side == "short":
+                        loss_pct = (price - pos.avg_price) / pos.avg_price
+                        if loss_pct >= sl:
+                            self._close_position(stock, date, price, signal, "stop_loss")
+                            entry_prices.pop(stock, None)
+                            stop_prices.pop(stock, None)
+                            profit_prices.pop(stock, None)
+                            continue
+
+                    if (signal == -1 and pos.side == "long") or (signal == 1 and pos.side == "short"):
                         self._close_position(stock, date, price, signal, "signal")
                         entry_prices.pop(stock, None)
                         stop_prices.pop(stock, None)
@@ -170,6 +203,13 @@ class BacktestEngine:
                             entry_prices[stock] = price
                             stop_prices[stock] = price * (1 - sl)
                             profit_prices[stock] = price * (1 + tp)
+                    elif signal == -1 and self.allow_short:
+                        vol = self._calculate_position_size(price)
+                        if vol > 0:
+                            self._open_short_position(stock, date, price, volume=vol)
+                            entry_prices[stock] = price
+                            stop_prices[stock] = price * (1 + sl)
+                            profit_prices[stock] = price * (1 - tp)
 
             self.dates.append(date)
             self.equity_history.append(self._get_equity())
@@ -189,10 +229,23 @@ class BacktestEngine:
         volume = int(max_cost / price)
         return max(volume, 1)
 
+    def _get_adv(self, stock: str) -> int:
+        return self._daily_volumes.get(stock, 0)
+
+    def _update_daily_volume(self, stock: str, date: Any, data_dict: Dict):
+        if stock in data_dict and date in data_dict[stock].index:
+            vol = data_dict[stock].loc[date, "volume"]
+            self._daily_volumes[stock] = int(vol)
+
     def _open_position(self, stock: str, date: Any, price: float, volume: Optional[int] = None):
         exec_price = self._apply_slippage(price, "buy")
         if volume is None:
             volume = self._calculate_position_size(exec_price)
+        if self.allow_partial_fill:
+            adv = self._get_adv(stock)
+            from .tca import PartialFillModel
+            pf = PartialFillModel(participation_threshold=self.participation_threshold)
+            volume = pf.calculate_filled_volume(volume, adv)
         total_cost = exec_price * volume
         if total_cost > self.cash:
             volume = int(self.cash / exec_price)
@@ -204,22 +257,62 @@ class BacktestEngine:
             stock=stock,
             volume=volume,
             avg_price=exec_price,
+            side="long",
         )
         self.cash -= exec_price * volume + commission
         self.trades.append(
             Trade(date=date, stock=stock, side="buy", price=exec_price,
-                  volume=volume, commission=commission, slippage=0.0, signal=1.0, reason="open")
+                  volume=volume, commission=commission, slippage=0.0, signal=1.0,
+                  reason="open", entry_price=exec_price)
+        )
+
+    def _open_short_position(self, stock: str, date: Any, price: float, volume: Optional[int] = None):
+        exec_price = self._apply_slippage(price, "sell")
+        if volume is None:
+            volume = self._calculate_position_size(exec_price)
+        if self.allow_partial_fill:
+            adv = self._get_adv(stock)
+            from .tca import PartialFillModel
+            pf = PartialFillModel(participation_threshold=self.participation_threshold)
+            volume = pf.calculate_filled_volume(volume, adv)
+        margin_required = exec_price * volume * self.short_margin
+        if margin_required > self.cash:
+            volume = int(self.cash / (exec_price * self.short_margin))
+            if volume <= 0:
+                return
+            margin_required = exec_price * volume * self.short_margin
+        commission = self._apply_commission(exec_price, volume)
+
+        self.positions[stock] = Position(
+            stock=stock,
+            volume=volume,
+            avg_price=exec_price,
+            side="short",
+        )
+        proceeds = exec_price * volume - commission
+        self.cash += proceeds
+        self.trades.append(
+            Trade(date=date, stock=stock, side="sell_short", price=exec_price,
+                  volume=volume, commission=commission, slippage=0.0, signal=-1.0,
+                  reason="open_short", entry_price=exec_price)
         )
 
     def _close_position(self, stock: str, date: Any, price: float, signal: float, reason: str = "signal"):
         pos = self.positions[stock]
-        exec_price = self._apply_slippage(price, "sell")
+        exec_price = self._apply_slippage(price, "sell" if pos.side == "long" else "buy")
         commission = self._apply_commission(exec_price, pos.volume)
-        proceeds = exec_price * pos.volume - commission
+
+        if pos.side == "long":
+            pnl = (exec_price - pos.avg_price) * pos.volume - commission
+            proceeds = exec_price * pos.volume - commission
+        else:
+            pnl = (pos.avg_price - exec_price) * pos.volume - commission
+            proceeds = pos.avg_price * pos.volume - exec_price * pos.volume - commission
 
         self.trades.append(
             Trade(date=date, stock=stock, side="sell", price=exec_price,
-                  volume=pos.volume, commission=commission, slippage=0.0, signal=signal, reason=reason)
+                  volume=pos.volume, commission=commission, slippage=0.0, signal=signal,
+                  reason=reason, entry_price=pos.avg_price, pnl=pnl)
         )
         self.cash += proceeds
         del self.positions[stock]
@@ -254,9 +347,10 @@ class BacktestEngine:
         max_dd = self._max_drawdown(equity_curve)
         total_ret = (equity_curve.iloc[-1] / equity_curve.iloc[0] - 1) if len(equity_curve) > 0 else 0.0
         calmar = total_ret / abs(max_dd) if max_dd != 0 else 0.0
-        wins = sum(1 for t in self.trades if t.side == "sell")
-        sell_trades = sum(1 for t in self.trades if t.side == "sell")
-        win_rate = wins / sell_trades if sell_trades > 0 else 0.0
+        closed_trades = [t for t in self.trades if t.side in ("sell", "sell_short") and t.pnl != 0]
+        wins = sum(1 for t in closed_trades if t.pnl > 0)
+        win_rate = wins / len(closed_trades) if closed_trades else 0.0
+        self.win_rate = win_rate
 
         return BacktestResult(
             equity_curve=equity_curve,

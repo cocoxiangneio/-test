@@ -92,6 +92,27 @@ def test_ic_validator_basic():
     assert "monthly_ic" in result
 
 
+def test_ic_forward_returns_correct_alignment():
+    from src.factors.cross_sectional import ICValidator
+
+    np.random.seed(42)
+    dates = pd.date_range("2024-01-01", periods=30, freq="B")
+    prices = pd.DataFrame({
+        "stock1": 100 * np.exp(np.cumsum(np.random.randn(30) * 0.01))
+    }, index=dates)
+
+    validator = ICValidator(forward_period=5)
+    fwd = validator.compute_forward_returns(prices, period=5)
+
+    assert len(fwd) == len(prices)
+    assert fwd.iloc[-5:].isna().all().all(), "Last 5 rows should be NaN (no future data)"
+
+    for i in range(len(dates) - 5):
+        expected = float(prices.iloc[i + 5, 0] / prices.iloc[i, 0] - 1)
+        actual = float(fwd.iloc[i, 0])
+        assert abs(actual - expected) < 1e-10, f"Mismatch at row {i}: {actual} vs {expected}"
+
+
 def test_ic_validator_forward_returns():
     from src.factors.cross_sectional import ICValidator
     np.random.seed(42)

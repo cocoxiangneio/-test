@@ -29,6 +29,7 @@ class MeanVarianceOptimizer:
         mu = returns.mean()
         n = len(mu)
         if n == 0:
+            logger.warning("Empty returns provided to MeanVarianceOptimizer")
             return {}
 
         def objective(w):
@@ -53,6 +54,7 @@ class MinVarianceOptimizer:
         cov = returns.cov()
         n = returns.shape[1]
         if n == 0:
+            logger.warning("Empty returns provided to MinVarianceOptimizer")
             return {}
 
         def objective(w):
@@ -74,6 +76,7 @@ class RiskParityOptimizer:
         cov = returns.cov()
         n = returns.shape[1]
         if n == 0:
+            logger.warning("Empty returns provided to RiskParityOptimizer")
             return {}
 
         def objective(w):
@@ -101,6 +104,7 @@ class HRPOptimizer:
         corr = returns.corr()
         n = returns.shape[1]
         if n == 0:
+            logger.warning("Empty returns provided to HRPOptimizer")
             return {}
         if n == 1:
             return {returns.columns[0]: 1.0}

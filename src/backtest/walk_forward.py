@@ -205,27 +205,70 @@ class WalkForwardOptimizer:
         for combo in combos:
             params = dict(zip(keys, combo))
             try:
-                equity = self._backtest_window(
-                    data_dict, strategy_func, params,
-                    start_idx=0,
-                    end_idx=self.train_window + self.test_window,
-                )
-                if equity is None or len(equity) < 10:
+                all_oos_equities = []
+                all_oos_sharpes = []
+
+                start_idx = 0
+                n_steps = 0
+                while True:
+                    train_end = start_idx + self.train_window
+                    oos_end = train_end + self.test_window
+
+                    equity = self._backtest_window(
+                        data_dict, strategy_func, params,
+                        start_idx=start_idx,
+                        end_idx=oos_end,
+                    )
+                    if equity is None or len(equity) < 10:
+                        start_idx += self.step
+                        n_steps += 1
+                        if n_steps > 100:
+                            break
+                        continue
+
+                    equity.index = pd.RangeIndex(len(equity))
+                    train_equity = equity.iloc[:self.train_window]
+                    oos_equity = equity.iloc[self.train_window:]
+
+                    if len(oos_equity) >= 5:
+                        oos_returns = oos_equity.pct_change().dropna()
+                        if len(oos_returns) > 0 and oos_returns.std() > 0:
+                            oos_sharpe = float(np.sqrt(252) * oos_returns.mean() / oos_returns.std())
+                            all_oos_sharpes.append(oos_sharpe)
+                            all_oos_equities.append(oos_equity)
+
+                    start_idx += self.step
+                    n_steps += 1
+                    if n_steps > 100:
+                        break
+                    if train_end + self.step > len(list(data_dict.values())[0]):
+                        break
+
+                if len(all_oos_sharpes) < 1:
                     continue
 
-                analyzer = WalkForwardAnalyzer(
-                    train_window=self.train_window,
-                    test_window=self.test_window,
-                    step=self.step,
-                    mode=self.mode,
-                )
-                result = analyzer.analyze(equity)
-                if not result:
-                    continue
+                mean_oos_sharpe = float(np.mean(all_oos_sharpes))
+                n_windows = len(all_oos_sharpes)
+                oos_positive_count = sum(1 for s in all_oos_sharpes if s > 0)
 
-                score = result.get("mean_oos_sharpe", 0.0)
+                combined_equity = pd.concat(all_oos_equities) if all_oos_equities else pd.Series()
+                if len(combined_equity) > 0:
+                    combined_returns = combined_equity.pct_change().dropna()
+                    combined_sharpe = float(np.sqrt(252) * combined_returns.mean() / combined_returns.std()) if combined_returns.std() > 0 else 0.0
+                else:
+                    combined_sharpe = 0.0
+
+                result = {
+                    "mean_oos_sharpe": mean_oos_sharpe,
+                    "n_windows": n_windows,
+                    "oos_positive_count": oos_positive_count,
+                    "combined_sharpe": combined_sharpe,
+                    "oos_sharpes": all_oos_sharpes,
+                }
+
+                score = mean_oos_sharpe
                 row = {"params": params, "score": score}
-                row.update({k: v for k, v in result.items() if k != "results_df"})
+                row.update(result)
                 all_results.append(row)
 
                 if score > best_score:

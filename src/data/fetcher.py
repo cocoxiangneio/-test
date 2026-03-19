@@ -58,9 +58,7 @@ class JQFetcher:
         try:
             import jqdatasdk as jq
             if not self.username or not self.password:
-                logger.warning("JQ_USER/JQ_PASSWORD not set, using defaults")
-                self.username = "15521833921"
-                self.password = "Aa86652346"
+                raise ValueError("JQ_USER and JQ_PASSWORD environment variables are required")
             jq.auth(self.username, self.password)
             self._jq = jq
             self._authed = True
