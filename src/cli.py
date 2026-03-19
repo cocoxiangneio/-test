@@ -3,9 +3,63 @@
 
 import argparse
 import logging
+import os
 import sys
+from typing import Any, Dict, Optional
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+
+def load_yaml_config(config_path: str) -> Dict[str, Any]:
+    try:
+        import yaml
+    except ImportError:
+        logging.error("PyYAML is required for config files. Install with: pip install pyyaml")
+        sys.exit(1)
+
+    if not os.path.exists(config_path):
+        logging.error(f"Config file not found: {config_path}")
+        sys.exit(1)
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        try:
+            config = yaml.safe_load(f)
+        except Exception as e:
+            logging.error(f"Invalid YAML in {config_path}: {e}")
+            sys.exit(1)
+
+    return config if config is not None else {}
+
+
+def merge_cli_with_yaml(args: argparse.Namespace, yaml_config: Optional[Dict[str, Any]]) -> argparse.Namespace:
+    if not yaml_config:
+        return args
+    command = getattr(args, "command", None)
+    if command == "run-backtest":
+        sec = yaml_config.get("backtest", {})
+        if hasattr(args, "stocks") and sec.get("stocks"):
+            args.stocks = sec["stocks"]
+        if hasattr(args, "start") and sec.get("start"):
+            args.start = sec["start"]
+        if hasattr(args, "end") and sec.get("end"):
+            args.end = sec["end"]
+        if hasattr(args, "cash") and sec.get("cash") is not None:
+            args.cash = float(sec["cash"])
+    elif command == "optimize":
+        sec = yaml_config.get("optimization", {})
+        if hasattr(args, "stocks") and sec.get("stocks"):
+            args.stocks = sec["stocks"]
+        if hasattr(args, "start") and sec.get("start"):
+            args.start = sec["start"]
+        if hasattr(args, "end") and sec.get("end"):
+            args.end = sec["end"]
+        if hasattr(args, "algorithm") and sec.get("algorithm"):
+            args.algorithm = sec["algorithm"]
+        if hasattr(args, "n_gen") and sec.get("n_gen") is not None:
+            args.n_gen = int(sec["n_gen"])
+        if hasattr(args, "pop_size") and sec.get("pop_size") is not None:
+            args.pop_size = int(sec["pop_size"])
+    return args
 
 
 def run_backtest(args):
@@ -113,6 +167,7 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
     p_backtest = subparsers.add_parser("run-backtest", help="Run backtest")
+    p_backtest.add_argument("--config", default=None, help="YAML config file path")
     p_backtest.add_argument("--stocks", nargs="+", default=["000001.XSHE"], help="Stock codes")
     p_backtest.add_argument("--start", default="2024-01-01", help="Start date")
     p_backtest.add_argument("--end", default="2025-01-01", help="End date")
@@ -120,6 +175,7 @@ def main():
     p_backtest.set_defaults(func=run_backtest)
 
     p_opt = subparsers.add_parser("optimize", help="Run optimization")
+    p_opt.add_argument("--config", default=None, help="YAML config file path")
     p_opt.add_argument("--stocks", nargs="+", default=["000001.XSHE"], help="Stock codes")
     p_opt.add_argument("--start", default="2024-01-01", help="Start date")
     p_opt.add_argument("--end", default="2025-01-01", help="End date")
@@ -133,6 +189,10 @@ def main():
     if args.command is None:
         parser.print_help()
         return
+    yaml_config = None
+    if hasattr(args, "config") and args.config:
+        yaml_config = load_yaml_config(args.config)
+        args = merge_cli_with_yaml(args, yaml_config)
     args.func(args)
 
 

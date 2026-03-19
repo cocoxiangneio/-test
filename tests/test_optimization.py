@@ -59,3 +59,90 @@ def test_objective_functions():
     assert isinstance(sharpe, float)
     assert isinstance(calmar, float)
     assert isinstance(comp, float)
+
+
+def test_grid_search_basic():
+    from src.optimization.grid_search import GridSearchOptimizer
+
+    gs = GridSearchOptimizer(
+        param_grid={"period": [5, 10, 20], "threshold": [0.01, 0.02]},
+        seed=42,
+    )
+    obj = lambda period, threshold: float(period * threshold)
+    best_p, best_s, results = gs.search(obj, n_weights=0)
+
+    assert gs.n_combinations_ == 6
+    assert best_p is not None
+    assert "period" in best_p
+    assert "threshold" in best_p
+    assert len(results) == 6
+    assert all("params" in r for r in results)
+    assert all("score" in r for r in results)
+
+
+def test_grid_search_with_metrics():
+    from src.optimization.grid_search import GridSearchOptimizer
+    import pandas as pd
+
+    np.random.seed(99)
+    dates = pd.date_range("2024-01-01", periods=60, freq="B")
+    equity = pd.Series(100 * np.exp(np.cumsum(np.random.randn(60) * 0.01)), index=dates)
+
+    gs = GridSearchOptimizer(param_grid={"alpha": [0.1, 0.2]}, seed=99)
+    obj = lambda alpha: alpha * 1.5
+    equity_func = lambda alpha: equity * alpha
+    best_p, best_s, results = gs.search(obj, n_weights=0, equity_curve_func=equity_func)
+
+    assert best_p is not None
+    assert len(results) == 2
+    for r in results:
+        assert "sharpe" in r
+        assert "calmar" in r
+        assert "total_return" in r
+
+
+def test_grid_search_with_backtest():
+    from src.optimization.grid_search import GridSearchWithBacktest
+
+    def dummy_backtest(sma_period, rsi_period, stop_loss):
+        return {
+            "sharpe_ratio": float(sma_period * 0.1 - rsi_period * 0.05 + stop_loss),
+            "total_return": float(sma_period * 0.01),
+            "max_drawdown": -0.05,
+        }
+
+    gs = GridSearchWithBacktest(
+        param_grid={
+            "sma_period": [10, 20, 30],
+            "rsi_period": [10, 14],
+            "stop_loss": [0.03, 0.05],
+        },
+        backtest_func=dummy_backtest,
+        metric="sharpe_ratio",
+        seed=42,
+    )
+    best_p, best_s, results = gs.search()
+
+    assert gs.n_combinations_ == 12
+    assert best_p is not None
+    assert "sma_period" in best_p
+    assert "rsi_period" in best_p
+    assert "stop_loss" in best_p
+    assert len(results) == 12
+    assert all("sharpe_ratio" in r for r in results)
+    assert all("total_return" in r for r in results)
+    max_sharpe = max(r["sharpe_ratio"] for r in results)
+    assert best_s == max_sharpe
+
+
+def test_grid_search_stability():
+    from src.optimization.grid_search import GridSearchOptimizer
+
+    gs1 = GridSearchOptimizer(param_grid={"p": [1, 2, 3]}, seed=0)
+    obj = lambda p: float(p * 2)
+    _, score1, _ = gs1.search(obj, n_weights=0)
+
+    gs2 = GridSearchOptimizer(param_grid={"p": [1, 2, 3]}, seed=0)
+    _, score2, _ = gs2.search(obj, n_weights=0)
+
+    assert score1 == score2

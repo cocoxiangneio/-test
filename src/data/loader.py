@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
 
@@ -133,6 +134,46 @@ class DataLoader:
         self._fundamental_cache.clear()
         self.fetcher.clear_cache()
         logger.info("All data loader caches cleared")
+
+    def load_csv(
+        self,
+        file_path: str,
+        date_column: str = "date",
+        parse_dates: bool = True,
+    ) -> pd.DataFrame:
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"CSV file not found: {file_path}")
+        try:
+            df = pd.read_csv(file_path, encoding="utf-8")
+        except UnicodeDecodeError:
+            df = pd.read_csv(file_path, encoding="gbk")
+        if parse_dates and date_column in df.columns:
+            df[date_column] = pd.to_datetime(df[date_column], errors="coerce")
+            df = df.set_index(date_column)
+            df = df.sort_index()
+        column_mapping = {
+            "开盘": "open", "收盘": "close", "最高": "high", "最低": "low", "成交量": "volume",
+            "open": "open", "close": "close", "high": "high", "low": "low", "volume": "volume",
+        }
+        df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
+        for col in ["open", "high", "low", "close", "volume"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        return df
+
+    def load_parquet(self, file_path: str) -> pd.DataFrame:
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Parquet file not found: {file_path}")
+        df = pd.read_parquet(file_path)
+        column_mapping = {
+            "开盘": "open", "收盘": "close", "最高": "high", "最低": "low", "成交量": "volume",
+            "open": "open", "close": "close", "high": "high", "low": "low", "volume": "volume",
+        }
+        df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
+        for col in ["open", "high", "low", "close", "volume"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        return df
 
     def data_summary(self, df: pd.DataFrame) -> Dict:
         if len(df) == 0:

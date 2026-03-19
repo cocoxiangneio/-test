@@ -26,6 +26,7 @@ class Trade:
     commission: float
     slippage: float
     signal: float
+    reason: str = "signal"
 
 
 @dataclass
@@ -117,8 +118,9 @@ class BacktestEngine:
         stop_prices: Dict[str, float] = {}
         profit_prices: Dict[str, float] = {}
 
+        prices: Dict[str, float] = {}
         for date in common_dates:
-            prices = {s: df.loc[date, "close"] for s, df in data_dict.items() if date in df.index}
+            prices = {s: float(df.loc[date, "close"]) for s, df in data_dict.items() if date in df.index}
             if not prices:
                 continue
 
@@ -194,7 +196,7 @@ class BacktestEngine:
         self.cash -= exec_price * volume + commission
         self.trades.append(
             Trade(date=date, stock=stock, side="buy", price=exec_price,
-                  volume=volume, commission=commission, slippage=0.0, signal=1.0)
+                  volume=volume, commission=commission, slippage=0.0, signal=1.0, reason="open")
         )
 
     def _close_position(self, stock: str, date: Any, price: float, signal: float, reason: str = "signal"):
@@ -205,7 +207,7 @@ class BacktestEngine:
 
         self.trades.append(
             Trade(date=date, stock=stock, side="sell", price=exec_price,
-                  volume=pos.volume, commission=commission, slippage=0.0, signal=signal)
+                  volume=pos.volume, commission=commission, slippage=0.0, signal=signal, reason=reason)
         )
         self.cash += proceeds
         del self.positions[stock]
