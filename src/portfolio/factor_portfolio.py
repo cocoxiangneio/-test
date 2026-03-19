@@ -96,7 +96,11 @@ class FactorPortfolioBuilder:
         last_rebal = None
 
         for date in dates:
-            if last_rebal is None or date >= rebal_dates[rebal_dates.searchsorted(date)]:
+            should_rebal = last_rebal is None
+            if not should_rebal and len(rebal_dates) > 0:
+                idx = rebal_dates.searchsorted(date)
+                should_rebal = idx < len(rebal_dates) and date >= rebal_dates[idx]
+            if should_rebal:
                 current_weights = self.build_quantile_weights(factor_panel, date, None)
                 last_rebal = date
                 cash = self._rebalance(positions, current_weights, prices_dict, date, cash)

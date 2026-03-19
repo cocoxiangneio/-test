@@ -90,6 +90,23 @@ def test_tca_liquidity_cost_with_adv():
     assert cost_small_adv > cost_no_adv, f"Liquidity cost should increase with small ADV (got no_adv={cost_no_adv}, small_adv={cost_small_adv})"
 
 
+def test_tca_liquidity_cost_buy_sell_direction():
+    from src.backtest.tca import LiquidityCostModel
+
+    lc = LiquidityCostModel(spread_bps=2.0)
+    buy_cost = lc.calculate(order_volume=1000, price=100.0, is_buy=True, adv=None)
+    sell_cost = lc.calculate(order_volume=1000, price=100.0, is_buy=False, adv=None)
+
+    assert buy_cost > 0, "Buy cost should be positive"
+    assert sell_cost < 0, "Sell cost should be negative (proceeds)"
+    assert abs(buy_cost + sell_cost) < 1e-10, "Buy and sell should have symmetric spread costs"
+
+    buy_with_adv = lc.calculate(order_volume=1000, price=100.0, is_buy=True, adv=5000)
+    sell_with_adv = lc.calculate(order_volume=1000, price=100.0, is_buy=False, adv=5000)
+    assert buy_with_adv > 0, "Buy cost with ADV should be positive"
+    assert sell_with_adv < 0, "Sell cost with ADV should be negative (proceeds)"
+
+
 def test_tca_batch_analysis():
     from src.backtest.tca import TransactionCostAnalyzer
 

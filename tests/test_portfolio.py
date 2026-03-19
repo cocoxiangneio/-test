@@ -364,3 +364,19 @@ def test_ica_aware_portfolio_builder():
     assert isinstance(equity, pd.Series)
     assert not equity.empty
     assert "sharpe" in metrics
+
+
+def test_factor_portfolio_empty_rebal_dates_no_crash():
+    from src.portfolio.factor_portfolio import FactorPortfolioBuilder
+    dates = pd.date_range("2024-01-01", periods=5, freq="B")
+    stocks = ["STOCK_A", "STOCK_B", "STOCK_C"]
+    idx = pd.MultiIndex.from_product([dates, stocks], names=["date", "stock"])
+    factor_vals = np.random.randn(5 * 3)
+    factor_panel = pd.DataFrame({"factor": factor_vals}, index=idx)["factor"]
+    prices_dict = {}
+    for stock in stocks:
+        prices_dict[stock] = pd.DataFrame({"close": np.random.rand(5) * 100 + 90}, index=dates)
+    builder = FactorPortfolioBuilder(n_quantiles=3, long_short=True)
+    equity, metrics = builder.run_backtest(factor_panel, prices_dict, rebalance_freq="ME")
+    assert isinstance(equity, pd.Series)
+    assert not equity.empty

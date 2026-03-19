@@ -15,6 +15,19 @@ def test_factor_registry():
     assert len(result) == 3
 
 
+def test_batch_calculate_returns_failed_factors():
+    from src.factors.factor_registry import FactorRegistry
+    reg = FactorRegistry()
+    reg.register("good_factor", lambda df: df["close"] * 2, "test", "", None)
+    reg.register("bad_factor", lambda df: 1 / 0, "test", "", None)
+    df = pd.DataFrame({"close": [1.0, 2.0, 3.0]})
+    result_df, failed_factors = reg.batch_calculate(["good_factor", "bad_factor"], df)
+    assert "good_factor" in result_df.columns
+    assert "bad_factor" in result_df.columns
+    assert np.all(result_df["bad_factor"].isna())
+    assert "bad_factor" in failed_factors
+
+
 def test_sma_factor(sample_ohlcv):
     from src.factors.technical import sma_20
     result = sma_20(sample_ohlcv)
@@ -169,3 +182,23 @@ def test_ic_validator_monthly_ic():
     assert "IC" in monthly_ic.columns
     ic_values = monthly_ic["IC"].dropna()
     assert len(ic_values) > 0
+
+
+def test_ic_validator_ir_series_not_all_nan():
+    from src.factors.cross_sectional import ICValidator
+    np.random.seed(42)
+    dates = pd.date_range("2024-01-01", periods=120, freq="B")
+    stocks = [f"stock{i}" for i in range(1, 16)]
+    idx = pd.MultiIndex.from_product([dates, stocks], names=["date", "code"])
+    returns = np.random.randn(120 * 15).reshape(120, 15) * 0.02
+    price_dict = {}
+    for i, stock in enumerate(stocks):
+        price_dict[stock] = 100 * np.exp(np.cumsum(returns[:, i]))
+    prices = pd.DataFrame(price_dict, index=dates)
+    factor_vals = returns * 0.8 + np.random.randn(120 * 15).reshape(120, 15) * 0.004
+    factor_panel = pd.DataFrame({"factor1": factor_vals.flatten()}, index=idx)
+    validator = ICValidator(ic_threshold=0.02, ir_threshold=0.5, forward_period=5)
+    daily_ic = validator.compute_daily_ic(factor_panel, prices, method="spearman", period=5)
+    assert "IR" in daily_ic.columns
+    ir_series = daily_ic["IR"].dropna()
+    assert len(ir_series) > 0, "IR series should have non-NaN values after rolling window is filled"

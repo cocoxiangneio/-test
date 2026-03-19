@@ -82,11 +82,12 @@ class LiquidityCostModel:
         if price <= 0 or order_volume <= 0:
             return 0.0
         half_spread = price * self.spread_bps / 10000 / 2
+        direction = 1 if is_buy else -1
         if adv is not None and adv > 0:
             participation = order_volume / adv
             market_impact_cost = participation * price * 0.001
-            return (half_spread + market_impact_cost) * order_volume
-        return half_spread * 2 * order_volume
+            return direction * (half_spread + market_impact_cost) * order_volume
+        return direction * half_spread * 2 * order_volume
 
 
 class SlippageModel:

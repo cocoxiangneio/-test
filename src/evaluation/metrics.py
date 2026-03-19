@@ -42,10 +42,10 @@ def calmar_ratio(equity: pd.Series, periods_per_year: int = 252) -> float:
 def sortino_ratio(returns: pd.Series, periods_per_year: int = 252) -> float:
     if len(returns) == 0:
         return 0.0
-    downside = returns[returns < 0]
-    if len(downside) == 0 or downside.std() == 0:
+    downside_dev = np.sqrt(np.mean(np.minimum(returns, 0) ** 2))
+    if downside_dev == 0:
         return 0.0
-    return float(np.sqrt(periods_per_year) * returns.mean() / downside.std())
+    return float(np.sqrt(periods_per_year) * returns.mean() / downside_dev)
 
 
 def win_rate(trades: List) -> float:
@@ -76,6 +76,8 @@ def annual_return(equity: pd.Series, periods_per_year: int = 252) -> float:
     years = len(equity) / periods_per_year
     if years <= 0:
         return 0.0
+    if years < 0.25:
+        return float(total_ret * periods_per_year / len(equity))
     return float((1 + total_ret) ** (1 / years) - 1)
 
 

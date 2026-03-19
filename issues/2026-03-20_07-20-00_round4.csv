@@ -1,0 +1,8 @@
+"id","priority","phase","area","title","description","acceptance_criteria","test_mcp","review_initial_requirements","review_regression_requirements","dev_state","review_initial_state","review_regression_state","git_state","owner","refs","notes"
+"q4-080","P1","1","factors","ICValidator IR序列永远为空","compute_daily_ic中ir_dict[date]=np.nan在try块外始终设为NaN，rolling IR计算结果存入DataFrame列而非dict","ir_dict在try块内正确填充；ir_series非空值数量>0","pytest","已完成","已通过","已通过","已提交"
+"q4-090","P2","2","factors","FactorRegistry.batch_calculate因子失败静默","batch_calculate中因子计算失败只logger.warning设为NaN，调用方无法知道哪些因子失败","batch_calculate返回(failed_factors: List[str])；失败因子收集到列表","pytest","已完成","已通过","已通过","已提交"
+"q4-100","P1","3","backtest","TCA LiquidityCostModel忽略is_buy方向","LiquidityCostModel.calculate接收is_buy参数但从不使用，spread成本对买卖方向处理相同","is_buy=False时spread成本方向反转；卖单spread为负(增加收益)","pytest","已完成","已通过","已通过","已提交"
+"q4-110","P2","4","portfolio","FactorPortfolio再平衡日期边界崩溃","build_backtest中searchsorted(date)可能越界；rebal_dates为空时IndexError","rebal_dates为空时跳过；searchsorted越界保护","pytest","已完成","已通过","已通过","已提交"
+"q4-120","P2","5","evaluation","Sortino Ratio公式不一致","sortino_ratio用returns.mean()分子除以downside.std()分母，未除以n导致年化系数错误","Sortino使用downside_returns的sqrt(mean(min(r-T,0)^2))标准差；或使用样本标准差但正确年化","pytest","已完成","已通过","已通过","已提交"
+"q4-130","P3","6","evaluation","年化收益对短期数据外推","annual_return对<60天数据做开方外推导致极端值","短期数据(<60天)使用线性年化；(1+total_ret)^(periods_per_year/n)-1","pytest","已完成","已通过","已通过","已提交"
+"q4-140","P3","7","backtest","WalkForward expanding模式边界条件","expanding模式while条件train_end_idx+test_window<=n在边界处可能漏掉最后一个窗口","while条件修正为train_end_idx < n - test_window；最后一个窗口不遗漏","pytest","已完成","已通过","已通过","已提交"

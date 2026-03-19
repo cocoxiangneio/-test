@@ -177,7 +177,7 @@ class ICValidator:
                 ic_dict[date] = ic
             except Exception:
                 ic_dict[date] = np.nan
-            ir_dict[date] = np.nan
+            ir_dict[date] = ic_dict.get(date, np.nan)
 
         ic_series = pd.Series(ic_dict).sort_index()
         ir_series = pd.Series(ir_dict)
@@ -191,6 +191,7 @@ class ICValidator:
                 result.loc[valid_ir.index[11:], "IC_mean_12"] /
                 (result.loc[valid_ir.index[11:], "IC_std_12"] + 1e-10)
             )
+        ir_series = result["IR"]
         return result
 
     def compute_monthly_ic(

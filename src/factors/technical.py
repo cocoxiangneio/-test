@@ -369,7 +369,8 @@ class TechnicalFactorCalculator:
             self.registry = get_registry()
 
         factors = self.registry.list_factors("technical")
-        return self.registry.batch_calculate(factors, df)
+        result, _ = self.registry.batch_calculate(factors, df)
+        return result
 
     def calculate_by_category(self, df: pd.DataFrame, category: str) -> pd.DataFrame:
         if self.registry is None:
@@ -377,11 +378,12 @@ class TechnicalFactorCalculator:
             self.registry = get_registry()
 
         factors = self.registry.list_factors(category)
-        return self.registry.batch_calculate(factors, df)
+        result, _ = self.registry.batch_calculate(factors, df)
+        return result
 
     def calculate_selected(self, df: pd.DataFrame, factor_names: list) -> pd.DataFrame:
         if self.registry is None:
             from .factor_registry import get_registry
             self.registry = get_registry()
 
-        return self.registry.batch_calculate(factor_names, df)
+        return self.registry.batch_calculate(factor_names, df)[0]

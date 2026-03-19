@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict, List, Optional, Any
+from typing import Callable, Dict, List, Optional, Any, Tuple
 
 import pandas as pd
 import numpy as np
@@ -66,15 +66,17 @@ class FactorRegistry:
         self,
         names: List[str],
         df: pd.DataFrame,
-    ) -> pd.DataFrame:
+    ) -> Tuple[pd.DataFrame, List[str]]:
         result = pd.DataFrame(index=df.index)
+        failed_factors: List[str] = []
         for name in names:
             try:
                 result[name] = self.calculate(name, df)
             except Exception as e:
                 logger.warning(f"Factor {name} calculation failed: {e}")
                 result[name] = np.nan
-        return result
+                failed_factors.append(name)
+        return result, failed_factors
 
 
 _global_registry = FactorRegistry()

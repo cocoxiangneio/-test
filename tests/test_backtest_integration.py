@@ -432,3 +432,20 @@ def test_partial_fill_model():
 
     no_adv = pf.calculate_filled_volume(1000, adv=0)
     assert no_adv == 1000, "No ADV means full fill"
+
+
+def test_walk_forward_expanding_boundary():
+    from src.backtest.walk_forward import WalkForwardAnalyzer
+    dates = pd.date_range("2024-01-01", periods=200, freq="B")
+    equity = pd.Series(np.cumsum(np.random.randn(200) * 0.01) + 100, index=dates)
+    wf = WalkForwardAnalyzer(
+        mode="expanding",
+        train_window=50,
+        test_window=30,
+        step=20,
+    )
+    result = wf.analyze(equity)
+    assert len(wf.results_) >= 3
+    for r in wf.results_:
+        assert r["test_length"] >= 20
+        assert r["train_length"] >= 30
